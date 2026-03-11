@@ -1,5 +1,5 @@
 import torch
-from ..device.npu_compatible_device import get_device_type
+from ..device.compatible_device import get_device_type
 try:
     import torch_npu
 except:

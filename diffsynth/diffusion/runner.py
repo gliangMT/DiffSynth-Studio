@@ -26,12 +26,18 @@ def launch_training_task(
     
     optimizer = torch.optim.AdamW(model.trainable_modules(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
-    dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, collate_fn=lambda x: x[0], num_workers=num_workers)
+    
+    # for accuracy alignment, we set sampler by manual and set shuffle=False, 
+    # and ensure the order of data is the same across epochs. 
+    # This is important for some special training process.
+    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
+    dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, shuffle=False, collate_fn=lambda x: x[0], num_workers=num_workers) # Set shuffle=False to ensure the order of data
     model.to(device=accelerator.device)
     model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
     
     for epoch_id in range(num_epochs):
-        for data in tqdm(dataloader):
+        # for data in tqdm(dataloader):
+        for step, data in enumerate(tqdm(dataloader)):
             with accelerator.accumulate(model):
                 optimizer.zero_grad()
                 if dataset.load_from_cache:
@@ -40,6 +46,9 @@ def launch_training_task(
                     loss = model(data)
                 accelerator.backward(loss)
                 optimizer.step()
+                accelerator.print(
+                    f" epoch={epoch_id} step={step} loss={loss.item():.6f}"
+                )
                 model_logger.on_step_end(accelerator, model, save_steps, loss=loss)
                 scheduler.step()
         if save_steps is None:

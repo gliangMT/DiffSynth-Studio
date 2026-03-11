@@ -9,17 +9,19 @@ def is_torch_npu_available():
 
 IS_CUDA_AVAILABLE = torch.cuda.is_available()
 IS_NPU_AVAILABLE = is_torch_npu_available() and torch.npu.is_available()
+IS_MUSA_AVAILABLE = hasattr(torch, "musa") and torch.musa.is_available()
 
 if IS_NPU_AVAILABLE:
     import torch_npu
 
     torch.npu.config.allow_internal_format = False
 
-
 def get_device_type() -> str:
     """Get device type based on current machine, currently only support CPU, CUDA, NPU."""
     if IS_CUDA_AVAILABLE:
         device = "cuda"
+    elif IS_MUSA_AVAILABLE:
+        device = "musa"
     elif IS_NPU_AVAILABLE:
         device = "npu"
     else:
@@ -63,6 +65,8 @@ def get_nccl_backend() -> str:
     """Return distributed communication backend type based on device type."""
     if IS_CUDA_AVAILABLE:
         return "nccl"
+    elif IS_MUSA_AVAILABLE:
+        return "mccl"
     elif IS_NPU_AVAILABLE:
         return "hccl"
     else:
@@ -76,6 +80,9 @@ def enable_high_precision_for_bf16():
     if IS_CUDA_AVAILABLE:
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    
+    if IS_MUSA_AVAILABLE:
+        torch.backends.mudnn.allow_tf32 = True
 
     if IS_NPU_AVAILABLE:
         torch.npu.matmul.allow_tf32 = False
@@ -86,6 +93,8 @@ def parse_device_type(device):
     if isinstance(device, str):
         if device.startswith("cuda"):
             return "cuda"
+        elif device.startswith("musa"):
+            return "musa"
         elif device.startswith("npu"):
             return "npu"
         else:
@@ -97,6 +106,8 @@ def parse_device_type(device):
 def parse_nccl_backend(device_type):
     if device_type == "cuda":
         return "nccl"
+    elif device_type == "musa":
+        return "mccl"
     elif device_type == "npu":
         return "hccl"
     else:

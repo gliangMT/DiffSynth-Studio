@@ -1,4 +1,5 @@
-import torch, os, argparse, accelerate, warnings
+import torchada
+import torch, os, argparse, accelerate, warnings, random, numpy as np
 from diffsynth.core import UnifiedDataset
 from diffsynth.core.data.operators import LoadVideo, LoadAudio, ImageCropAndResize, ToAbsolutePath
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
@@ -121,6 +122,18 @@ def wan_parser():
 
 
 if __name__ == "__main__":
+    # set random seed, torch.cuda.x could be used for both CUDA and MUSA with torchada, and it will automatically work on the correct device.
+    print("Setting random seed to 42 for reproducibility.")
+    seed = 42
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
     parser = wan_parser()
     args = parser.parse_args()
     accelerator = accelerate.Accelerator(

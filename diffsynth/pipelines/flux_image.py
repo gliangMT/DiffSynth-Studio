@@ -6,7 +6,7 @@ from einops import rearrange, repeat
 import numpy as np
 from transformers import CLIPTokenizer, T5TokenizerFast
 
-from ..core.device.npu_compatible_device import get_device_type
+from ..core.device.compatible_device import get_device_type
 from ..diffusion import FlowMatchScheduler
 from ..core import ModelConfig, gradient_checkpoint_forward, load_state_dict
 from ..diffusion.base_pipeline import BasePipeline, PipelineUnit, ControlNetInput

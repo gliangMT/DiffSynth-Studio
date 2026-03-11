@@ -2,7 +2,7 @@ from transformers import DINOv3ViTModel, DINOv3ViTImageProcessorFast
 from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTConfig
 import torch
 
-from ..core.device.npu_compatible_device import get_device_type
+from ..core.device.compatible_device import get_device_type
 
 
 class DINOv3ImageEncoder(DINOv3ViTModel):

@@ -22,7 +22,7 @@ For example, here is the inference code for **Wan2.1-T2V-1.3B**, modified for As
 import torch
 from diffsynth.utils.data import save_video, VideoData
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
-from diffsynth.core.device.npu_compatible_device import get_device_name
+from diffsynth.core.device.compatible_device import get_device_name
 
 vram_config = {
     "offload_dtype": "disk",

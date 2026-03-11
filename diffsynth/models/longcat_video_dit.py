@@ -9,7 +9,7 @@ import numpy as np
 import torch.nn.functional as F
 from einops import rearrange, repeat
 from .wan_video_dit import flash_attention
-from ..core.device.npu_compatible_device import get_device_type
+from ..core.device.compatible_device import get_device_type
 from ..core.gradient import gradient_checkpoint_forward
 
 

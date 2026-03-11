@@ -6,6 +6,7 @@ from typing import Tuple, Optional
 from einops import rearrange
 from .wan_video_camera_controller import SimpleAdapter
 from ..core.gradient import gradient_checkpoint_forward
+from ..core.device import IS_MUSA_AVAILABLE
 
 try:
     import flash_attn_interface
@@ -15,9 +16,15 @@ except ModuleNotFoundError:
 
 try:
     import flash_attn
-    FLASH_ATTN_2_AVAILABLE = True
+    if IS_MUSA_AVAILABLE:
+        FLASH_ATTN_2_AVAILABLE = False
+        print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
+    else:        
+        FLASH_ATTN_2_AVAILABLE = True
+        print(f"[DEBUG] flash_attn is available. flash_attn version: {flash_attn.__version__}")
 except ModuleNotFoundError:
     FLASH_ATTN_2_AVAILABLE = False
+    print(f"[DEBUG] flash_attn is not available.")
 
 try:
     from sageattention import sageattn
@@ -31,7 +38,15 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
-        x = F.scaled_dot_product_attention(q, k, v)
+        if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
+            # print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for compatibility mode.")
+            # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
+            # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
+            # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
+            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+                x = F.scaled_dot_product_attention(q, k, v)
+        else:
+            x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
     elif FLASH_ATTN_3_AVAILABLE:
         q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
@@ -57,7 +72,15 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
-        x = F.scaled_dot_product_attention(q, k, v)
+        if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
+            # print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for default mode.")
+            # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
+            # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
+            # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
+            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+                x = F.scaled_dot_product_attention(q, k, v)
+        else:
+            x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
     return x
 
@@ -67,8 +90,10 @@ def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor):
 
 
 def sinusoidal_embedding_1d(dim, position):
-    sinusoid = torch.outer(position.type(torch.float64), torch.pow(
-        10000, -torch.arange(dim//2, dtype=torch.float64, device=position.device).div(dim//2)))
+    # sinusoid = torch.outer(position.type(torch.float64), torch.pow(
+    #     10000, -torch.arange(dim//2, dtype=torch.float64, device=position.device).div(dim//2)))
+    sinusoid = torch.outer(position.type(torch.float32), torch.pow(
+        10000, -torch.arange(dim//2, dtype=torch.float32, device=position.device).div(dim//2)))
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
     return x.to(position.dtype)
 

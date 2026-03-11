@@ -11,7 +11,7 @@ from typing import Optional
 from typing_extensions import Literal
 from transformers import Wav2Vec2Processor
 
-from ..core.device.npu_compatible_device import get_device_type
+from ..core.device.compatible_device import get_device_type
 from ..diffusion import FlowMatchScheduler
 from ..core import ModelConfig, gradient_checkpoint_forward
 from ..diffusion.base_pipeline import BasePipeline, PipelineUnit
@@ -127,7 +127,7 @@ class WanVideoPipeline(BasePipeline):
             from ..utils.xfuser import initialize_usp
             initialize_usp(device)
             import torch.distributed as dist
-            from ..core.device.npu_compatible_device import get_device_name
+            from ..core.device.compatible_device import get_device_name
             if dist.is_available() and dist.is_initialized():
                 device = get_device_name()
         # Initialize pipeline
@@ -216,7 +216,7 @@ class WanVideoPipeline(BasePipeline):
         vap_prompt: Optional[str] = " ",
         negative_vap_prompt: Optional[str] = " ",
         # Randomness
-        seed: Optional[int] = None,
+        seed: Optional[int] = 42, # set random seed for reproducibility. If None, the seed will be random.origin is None.
         rand_device: Optional[str] = "cpu",
         # Shape
         height: Optional[int] = 480,
@@ -1098,6 +1098,7 @@ class TemporalTiler_BCTHW:
         tensor_dict = {tensor_name: model_kwargs[tensor_name] for tensor_name in tensor_names}
         B, C, T, H, W = tensor_dict[tensor_names[0]].shape
         if batch_size is not None:
+            print(f"[DEBUG MUSA] Using batch size {batch_size} for temporal tiling. Original batch size is {B}.")
             B *= batch_size
         data_device, data_dtype = tensor_dict[tensor_names[0]].device, tensor_dict[tensor_names[0]].dtype
         value = torch.zeros((B, C, T, H, W), device=data_device, dtype=data_dtype)

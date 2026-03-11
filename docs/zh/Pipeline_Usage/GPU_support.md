@@ -22,7 +22,7 @@ AMD 提供了基于 ROCm 的 torch 包，所以大多数模型无需修改代码
 import torch
 from diffsynth.utils.data import save_video, VideoData
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
-from diffsynth.core.device.npu_compatible_device import get_device_name
+from diffsynth.core.device.compatible_device import get_device_name
 
 vram_config = {
     "offload_dtype": "disk",

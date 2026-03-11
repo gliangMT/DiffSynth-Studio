@@ -6,7 +6,7 @@ from einops import rearrange
 import numpy as np
 from typing import Union, List, Optional, Tuple, Iterable, Dict
 
-from ..core.device.npu_compatible_device import get_device_type, IS_NPU_AVAILABLE
+from ..core.device.compatible_device import get_device_type, IS_NPU_AVAILABLE
 from ..diffusion import FlowMatchScheduler
 from ..core import ModelConfig, gradient_checkpoint_forward
 from ..core.data.operators import ImageCropAndResize

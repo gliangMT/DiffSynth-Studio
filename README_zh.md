@@ -10,6 +10,29 @@
 
 [Switch to English](./README.md)
 
+## 基于MUSA后端的Wan2.2-I2V适配版本
+> 目前仅支持在musa容器环境中安装
+```bash
+# 手动源码安装saftensors的最新版本，该版本目前适配了MUSA后端，后续可以通过pypi安装
+# First install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Make sure it's up to date and using stable channel
+rustup update
+git clone https://github.com/huggingface/safetensors
+cd safetensors/bindings/python
+pip install setuptools_rust
+pip install -e .
+
+# Install DeepSpeed musa backend version
+git clone https://github.com/gliangMT/DeepSpeed.git -b musa_dev
+cd DeepSpeed
+DS_ACCELERATOR=musa DS_BUILD_FUSED_ADAM=1 DS_BUILD_CPU_ADAM=1 DS_BUILD_CPU_ADAGRAD=1 python setup.py develop
+
+# Install DiffSynth-Studio
+cd DiffSynth-Studio
+pip install -e .
+```
+
 ## 简介
 
 > DiffSynth-Studio 文档：[中文版](https://diffsynth-studio-doc.readthedocs.io/zh-cn/latest/)、[English version](https://diffsynth-studio-doc.readthedocs.io/en/latest/)

@@ -10,8 +10,8 @@ authors = [{name = "ModelScope Team"}]
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10.1"
 dependencies = [
-    "torch>=2.0.0",
-    "torchvision",
+    # "torch>=2.0.0",
+    # "torchvision",
     "transformers",
     "imageio",
     "imageio[ffmpeg]",
@@ -37,6 +37,12 @@ where = ["./"]
 include = ["diffsynth", "diffsynth.*"]
 
 [project.optional-dependencies]
+musa = [
+    "torch==2.7.1+cpu",
+    "torch_musa==2.7.1",
+    "torchvision==0.22.1+cpu",
+    "torchada>=0.1.37"
+]
 npu_aarch64 = [
     "torch==2.7.1",
     "torch-npu==2.7.1",

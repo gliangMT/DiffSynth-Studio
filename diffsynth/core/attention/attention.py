@@ -1,6 +1,6 @@
 import torch, os
 from einops import rearrange
-
+from ..device import IS_MUSA_AVAILABLE
 
 try:
     import flash_attn_interface
@@ -10,7 +10,12 @@ except ModuleNotFoundError:
 
 try:
     import flash_attn
-    FLASH_ATTN_2_AVAILABLE = True
+    if IS_MUSA_AVAILABLE:
+        FLASH_ATTN_2_AVAILABLE = True
+        print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
+    else:        
+        FLASH_ATTN_2_AVAILABLE = True
+        print(f"[DEBUG] flash_attn is available. flash_attn version: {flash_attn.__version__}")
 except ModuleNotFoundError:
     FLASH_ATTN_2_AVAILABLE = False
 
@@ -66,7 +71,11 @@ def rearrange_out(out: torch.Tensor, out_pattern="b n s d", required_out_pattern
 def torch_sdpa(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, q_pattern="b n s d", k_pattern="b n s d", v_pattern="b n s d", out_pattern="b n s d", dims=None, attn_mask=None, scale=None):
     required_in_pattern, required_out_pattern= "b n s d", "b n s d"
     q, k, v = rearrange_qkv(q, k, v, q_pattern, k_pattern, v_pattern, required_in_pattern, dims)
-    out = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask, scale=scale)
+    if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            out = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask, scale=scale)
+    else:
+        out = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask, scale=scale)
     out = rearrange_out(out, out_pattern, required_out_pattern, dims)
     return out
 

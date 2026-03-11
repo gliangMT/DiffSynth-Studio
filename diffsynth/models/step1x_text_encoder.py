@@ -1,7 +1,7 @@
 import torch
 from typing import Optional, Union
 from .qwen_image_text_encoder import QwenImageTextEncoder
-from ..core.device.npu_compatible_device import get_device_type, get_torch_device
+from ..core.device.compatible_device import get_device_type, get_torch_device
 
 
 class Step1xEditEmbedder(torch.nn.Module):
