@@ -23,7 +23,7 @@ pipe = WanVideoPipeline.from_pretrained(
             "/data/liang.geng/DiffSynth-Studio/models/Wan-AI/Wan2.2-I2V-A14B/high_noise_model/diffusion_pytorch_model-00005-of-00006.safetensors",
             "/data/liang.geng/DiffSynth-Studio/models/Wan-AI/Wan2.2-I2V-A14B/high_noise_model/diffusion_pytorch_model-00006-of-00006.safetensors",
         ]),
-        ModelConfig(path="/data/liang.geng/DiffSynth-Studio/models/train/Wan2.2-I2V-A14B_low_noise_full/step-100.safetensors"),
+        ModelConfig(path="/data/liang.geng/DiffSynth-Studio/models/train/Wan2.2-I2V-A14B_low_noise_full_frames121_flash-attn/step-150.safetensors"),
         ModelConfig(path="/data/liang.geng/DiffSynth-Studio/models/Wan-AI/Wan2.2-I2V-A14B/models_t5_umt5-xxl-enc-bf16.pth"),
         ModelConfig(path="/data/liang.geng/DiffSynth-Studio/models/Wan-AI/Wan2.2-I2V-A14B/Wan2.1_VAE.pth"),
     ],
@@ -44,4 +44,4 @@ video = pipe(
     input_image=input_image,
     switch_DiT_boundary=0.9,
 )
-save_video(video, "video_Wan2.2-I2V-A14B.mp4", fps=15, quality=5)
+save_video(video, "21frame_step150_flash_attn_video_Wan2.2-I2V-A14B.mp4", fps=15, quality=5)

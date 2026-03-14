@@ -4,6 +4,13 @@ from accelerate import Accelerator
 from .training_module import DiffusionTrainingModule
 from .logger import ModelLogger
 
+# for debug nan issues
+from ..debug_tools.nan_debugger import NaNDebugger
+# from torch_musa.utils.compare_tool import CompareWithCPU, open_module_tracker, ModuleInfo, NanInfTracker
+
+DEBUG_FLASH_ATTN = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
+if DEBUG_FLASH_ATTN:
+    print("FlashAttention debug mode enabled")
 
 def launch_training_task(
     accelerator: Accelerator,
@@ -35,16 +42,47 @@ def launch_training_task(
     model.to(device=accelerator.device)
     model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
     
+    # for debug
+    if DEBUG_FLASH_ATTN:
+        debugger = NaNDebugger(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            accelerator=accelerator,
+            model_logger=model_logger
+        )
+        debugger.enable_hooks()
+        debugger.enable_grad_hooks()
+        debugger.enable_backward_hooks() # add bwd hook
+    
     for epoch_id in range(num_epochs):
         # for data in tqdm(dataloader):
         for step, data in enumerate(tqdm(dataloader)):
+            
+            if DEBUG_FLASH_ATTN:
+                debugger.save_shadow_state(step, epoch_id, data)
+            
             with accelerator.accumulate(model):
                 optimizer.zero_grad()
                 if dataset.load_from_cache:
                     loss = model({}, inputs=data)
                 else:
                     loss = model(data)
+                
+                if DEBUG_FLASH_ATTN:
+                    debugger.check_loss(loss)    
+                
                 accelerator.backward(loss)
+                
+                if DEBUG_FLASH_ATTN:
+                    if debugger.nan_detected:
+                        if accelerator.is_main_process:
+                            debugger.dump_nan_state()
+
+                        accelerator.wait_for_everyone()
+
+                        raise RuntimeError("NaN detected, debug state saved") 
+                
                 optimizer.step()
                 accelerator.print(
                     f" epoch={epoch_id} step={step} loss={loss.item():.6f}"

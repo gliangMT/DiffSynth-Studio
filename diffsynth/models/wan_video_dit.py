@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import os
 from typing import Tuple, Optional
 from einops import rearrange
 from .wan_video_camera_controller import SimpleAdapter
 from ..core.gradient import gradient_checkpoint_forward
 from ..core.device import IS_MUSA_AVAILABLE
+
+DEBUG_FLASH_ATTN = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
 
 try:
     import flash_attn_interface
@@ -17,8 +20,12 @@ except ModuleNotFoundError:
 try:
     import flash_attn
     if IS_MUSA_AVAILABLE:
-        FLASH_ATTN_2_AVAILABLE = False
-        print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
+        if DEBUG_FLASH_ATTN:
+            FLASH_ATTN_2_AVAILABLE = True
+            print(f"[DEBUG] flash_attn is available and enter debug mode. flash_attn version: {flash_attn.__version__}")
+        else:
+            FLASH_ATTN_2_AVAILABLE = False
+            print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
     else:        
         FLASH_ATTN_2_AVAILABLE = True
         print(f"[DEBUG] flash_attn is available. flash_attn version: {flash_attn.__version__}")
@@ -31,7 +38,55 @@ try:
     SAGE_ATTN_AVAILABLE = True
 except ModuleNotFoundError:
     SAGE_ATTN_AVAILABLE = False
-    
+
+# musa debug
+ATTN_COUNTER = 0
+def debug_flashattn(q, k, v):
+    global ATTN_COUNTER
+    name = f"sdpa_{ATTN_COUNTER}"
+    ATTN_COUNTER += 1
+    if torch.isnan(q).any():
+        print(f"[NaN] q before attention in {name}, shape={q.shape}")
+    if torch.isnan(k).any():
+        print(f"[NaN] k before attention in {name}, shape={k.shape}")
+    if torch.isnan(v).any():
+        print(f"[NaN] v before attention in {name}, shape={v.shape}")
+
+    with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION): # set to math for debug, can switch back to flash_attention after stability is verified 
+        out = F.scaled_dot_product_attention(q, k, v)
+
+    if not torch.isfinite(out).all():
+
+        print("================================")
+        print(f"[NaN DETECTED] attention output in {name}")
+
+        print("dtype:", q.dtype)
+        print("q shape:", q.shape)
+
+        print("q absmax:", q.abs().max().item())
+        print("k absmax:", k.abs().max().item())
+        print("v absmax:", v.abs().max().item())
+
+        scale = 1.0 / (q.shape[-1] ** 0.5)
+
+        sample_q = q[..., :64, :]
+        sample_k = k[..., :64, :]
+
+        logits = torch.matmul(sample_q, sample_k.transpose(-2, -1)) * scale
+
+        print("sample logits max:", logits.max().item())
+        print("sample logits min:", logits.min().item())
+
+        attn = torch.softmax(logits, dim=-1)
+
+        print("sample attn max:", attn.max().item())
+        print("sample attn min:", attn.min().item())
+
+        print("================================")
+
+        raise RuntimeError("FlashAttention produced NaN")
+
+    return out
     
 def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads: int, compatibility_mode=False):
     if compatibility_mode:
@@ -77,8 +132,13 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
             # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
             # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
             # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
-            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-                x = F.scaled_dot_product_attention(q, k, v)
+            # with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+            #     x = F.scaled_dot_product_attention(q, k, v)
+            if DEBUG_FLASH_ATTN:
+                x = debug_flashattn(q, k, v)  # debug flash attention for NaN issues
+            else:
+                with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+                    x = F.scaled_dot_product_attention(q, k, v)
         else:
             x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
