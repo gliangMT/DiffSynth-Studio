@@ -49,7 +49,8 @@ def launch_training_task(
             optimizer=optimizer,
             scheduler=scheduler,
             accelerator=accelerator,
-            model_logger=model_logger
+            model_logger=model_logger,
+            target_keywords=["self_attn"],
         )
         debugger.enable_hooks()
         debugger.enable_grad_hooks()

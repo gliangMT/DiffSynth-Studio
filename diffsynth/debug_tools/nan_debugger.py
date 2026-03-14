@@ -13,6 +13,7 @@ class NaNDebugger:
         accelerator: Accelerator = None, 
         save_dir="./models/nan_debug", 
         model_logger: ModelLogger = None,
+        target_keywords = None,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -28,7 +29,18 @@ class NaNDebugger:
 
         self.hooks_enabled = False
         self.nan_detected = False
+        self.target_keywords = target_keywords  # 可配置的关键词列表
+    
+    def _should_hook(self, name):
+        if self.target_keywords is None:
+            return True
         
+        name = name.lower()
+        for kw in self.target_keywords:
+            if kw in name:
+                return True
+        return False
+    
     # ------------------------------------------------
     # 获取真实模型（兼容 Accelerate / DeepSpeed）
     # ------------------------------------------------
@@ -158,7 +170,7 @@ class NaNDebugger:
                 tensors += [t for t in out if isinstance(t, torch.Tensor)]
 
             for t in tensors:
-                if torch.isnan(t).any():
+                if not torch.isfinite(t).all():
 
                     print("\n===== NaN detected in forward =====")
                     print("module:", name)
@@ -184,11 +196,15 @@ class NaNDebugger:
             return
 
         print("Enabling NaN forward hooks")
-
+        
+        count = 0
         for name, module in self.model.named_modules():
-
+            if not self._should_hook(name):
+                continue
             module.register_forward_hook(self._forward_hook(name))
+            count += 1
 
+        print(f"[MUSA DEBUG] Forward hooks enabled for {count} modules")
         self.hooks_enabled = True
 
     # ------------------------------------------------
@@ -197,12 +213,15 @@ class NaNDebugger:
     def enable_grad_hooks(self):
 
         print("Enabling gradient NaN hooks")
-
+        count = 0
         for name, p in self.model.named_parameters():
-
+            if not self._should_hook(name):
+                continue
+            
             if p.requires_grad:
-
                 p.register_hook(self._grad_hook(name))
+                count += 1
+        print(f"[MUSA DEBUG] Gradient hooks enabled for {count} parameters")
     
     def _grad_hook(self, name):
 
@@ -225,9 +244,13 @@ class NaNDebugger:
     def enable_backward_hooks(self):
 
         print("Enabling backward hooks")
-
+        count = 0
         for name, module in self.model.named_modules():
+            if not self._should_hook(name):
+                continue
             module.register_full_backward_hook(self._bwd_hook(name))
+            count += 1
+        print(f"[MUSA DEBUG] Backward hooks enabled for {count} modules")
     
     def _bwd_hook(self, name):
 
