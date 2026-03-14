@@ -75,13 +75,13 @@ def launch_training_task(
                 accelerator.backward(loss)
                 
                 if DEBUG_FLASH_ATTN:
-                    if debugger.nan_detected:
-                        if accelerator.is_main_process:
-                            debugger.dump_nan_state()
+                    if debugger.nan_detected:  # just for bwd nan, if fwd nan, it will directly raise error and won't reach here
+                        # 先 dump
+                        debugger.dump_nan_state()
 
-                        accelerator.wait_for_everyone()
-
-                        raise RuntimeError("NaN detected, debug state saved") 
+                        raise RuntimeError(
+                            f"NaN detected at step {debugger.last_good_state['step']}"
+                        )
                 
                 optimizer.step()
                 accelerator.print(
