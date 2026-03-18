@@ -9,8 +9,8 @@ from .wan_video_camera_controller import SimpleAdapter
 from ..core.gradient import gradient_checkpoint_forward
 from ..core.device import IS_MUSA_AVAILABLE
 
-DEBUG_FLASH_ATTN = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
-
+MUSA_FLASH_ATTENTION_DEBUG = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
+CROSS_ATTN_MATH_MODE = os.environ.get("CROSS_ATTN_MATH_MODE", "0") == "1"
 try:
     import flash_attn_interface
     FLASH_ATTN_3_AVAILABLE = True
@@ -20,11 +20,10 @@ except ModuleNotFoundError:
 try:
     import flash_attn
     if IS_MUSA_AVAILABLE:
-        if DEBUG_FLASH_ATTN:
-            FLASH_ATTN_2_AVAILABLE = True
+        FLASH_ATTN_2_AVAILABLE = False
+        if MUSA_FLASH_ATTENTION_DEBUG:
             print(f"[DEBUG] flash_attn is available and enter debug mode. flash_attn version: {flash_attn.__version__}")
         else:
-            FLASH_ATTN_2_AVAILABLE = False
             print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
     else:        
         FLASH_ATTN_2_AVAILABLE = True
@@ -44,7 +43,7 @@ ATTN_COUNTER = 0
 def debug_flashattn(q, k, v):
     global ATTN_COUNTER
     name = f"sdpa_{ATTN_COUNTER}"
-    ATTN_COUNTER += 1
+    ATTN_COUNTER += 1    
     if torch.isnan(q).any():
         print(f"[NaN] q before attention in {name}, shape={q.shape}")
     if torch.isnan(k).any():
@@ -55,7 +54,7 @@ def debug_flashattn(q, k, v):
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION): # set to math for debug, can switch back to flash_attention after stability is verified 
         out = F.scaled_dot_product_attention(q, k, v)
 
-    if not torch.isfinite(out).all():
+    if torch.isnan(out).any() or torch.isinf(out).any():
 
         print("================================")
         print(f"[NaN DETECTED] attention output in {name}")
@@ -88,20 +87,28 @@ def debug_flashattn(q, k, v):
 
     return out
     
-def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads: int, compatibility_mode=False):
+def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads: int, compatibility_mode=False, cross_attn_mode=False):
     if compatibility_mode:
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
-            # print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for compatibility mode.")
-            # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
-            # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
-            # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
             with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
                 x = F.scaled_dot_product_attention(q, k, v)
         else:
             x = F.scaled_dot_product_attention(q, k, v)
+        x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
+    elif cross_attn_mode:            # split cross attn and self attn to help debug NaN issues in cross attention
+        q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
+        k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
+        v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
+        if CROSS_ATTN_MATH_MODE: # use sdpa math backend for better stability on MUSA
+            print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for cross attn mode.")
+            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+                x = F.scaled_dot_product_attention(q, k, v)
+        else:
+            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+                x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
     elif FLASH_ATTN_3_AVAILABLE:
         q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
@@ -134,7 +141,7 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
             # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
             # with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
             #     x = F.scaled_dot_product_attention(q, k, v)
-            if DEBUG_FLASH_ATTN:
+            if MUSA_FLASH_ATTENTION_DEBUG:
                 x = debug_flashattn(q, k, v)  # debug flash attention for NaN issues
             else:
                 with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
@@ -199,12 +206,13 @@ class RMSNorm(nn.Module):
 
 
 class AttentionModule(nn.Module):
-    def __init__(self, num_heads):
+    def __init__(self, num_heads, cross_attn_mode=False):
         super().__init__()
         self.num_heads = num_heads
-        
+        self.cross_attn_mode = cross_attn_mode
+
     def forward(self, q, k, v):
-        x = flash_attention(q=q, k=k, v=v, num_heads=self.num_heads)
+        x = flash_attention(q=q, k=k, v=v, num_heads=self.num_heads, cross_attn_mode=self.cross_attn_mode)
         return x
 
 
@@ -253,7 +261,7 @@ class CrossAttention(nn.Module):
             self.v_img = nn.Linear(dim, dim)
             self.norm_k_img = RMSNorm(dim, eps=eps)
             
-        self.attn = AttentionModule(self.num_heads)
+        self.attn = AttentionModule(self.num_heads, cross_attn_mode=True)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
         if self.has_image_input:
@@ -266,9 +274,10 @@ class CrossAttention(nn.Module):
         v = self.v(ctx)
         x = self.attn(q, k, v)
         if self.has_image_input:
+            print(f"[DEBUG] cross attn with has_image_input")
             k_img = self.norm_k_img(self.k_img(img))
             v_img = self.v_img(img)
-            y = flash_attention(q, k_img, v_img, num_heads=self.num_heads)
+            y = flash_attention(q, k_img, v_img, num_heads=self.num_heads, cross_attn_mode=True)
             x = x + y
         return self.o(x)
 

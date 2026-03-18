@@ -90,7 +90,7 @@ class NaNDebugger:
         path_ckpt = os.path.join(self.save_dir, "nan_minus_1.pt")
         path_batch = os.path.join(self.save_dir, "nan_batch.pt")
 
-        print("\n===== NaN detected! Saving debug state =====")
+        print("\n===== NaN/Inf  DETECTED! Saving debug state =====")
 
         # 只在主进程保存
         if self.accelerator is None or self.accelerator.is_main_process:
@@ -145,9 +145,9 @@ class NaNDebugger:
         if not isinstance(tensor, torch.Tensor):
             return
 
-        if torch.isnan(tensor).any():
+        if torch.isnan(tensor).any() or torch.isinf(tensor).any():
 
-            print(f"[NaN DETECTED] tensor: {name}")
+            print(f"[NaN/Inf  DETECTED] tensor: {name}")
             print("shape:", tensor.shape)
             if self.accelerator is None or self.accelerator.is_main_process:
                 self.dump_nan_state()
@@ -172,7 +172,7 @@ class NaNDebugger:
             for t in tensors:
                 if not torch.isfinite(t).all():
 
-                    print("\n===== NaN detected in forward =====")
+                    print("\n===== NaN/Inf  DETECTED in forward =====")
                     print("module:", name)
                     print("shape:", t.shape)
 
@@ -183,7 +183,7 @@ class NaNDebugger:
                     if self.accelerator is None or self.accelerator.is_main_process:
                         self.dump_nan_state()
 
-                    raise RuntimeError(f"NaN detected in module {name}")
+                    raise RuntimeError(f"NaN/Inf  DETECTED in module {name}")
 
         return hook
 
@@ -229,12 +229,16 @@ class NaNDebugger:
             if grad is None:
                 return
 
-            if torch.isnan(grad).any():
-                print("\n===== NaN detected in gradient =====")
+            if torch.isnan(grad).any() or torch.isinf(grad).any():
+                print("\n===== NaN/Inf  DETECTED in gradient =====")
                 print("param:", name)
                 print("shape:", grad.shape)
-                self.nan_detected = True
-                return
+                # self.nan_detected = True
+                # return
+                if self.accelerator is None or self.accelerator.is_main_process:
+                        self.dump_nan_state()
+
+                raise RuntimeError(f"NaN/Inf  DETECTED in module {name}")
 
         return hook
     
@@ -265,9 +269,9 @@ class NaNDebugger:
 
             for g in tensors:
 
-                if g is not None and torch.isnan(g).any():
+                if g is not None and (torch.isnan(g).any() or torch.isinf(g).any()):
 
-                    print("\n===== NaN detected in backward =====")
+                    print("\n===== NaN/Inf  DETECTED in backward =====")
                     print("module:", name)
                     print("grad shape:", g.shape)
 
@@ -277,7 +281,11 @@ class NaNDebugger:
                     except:
                         pass
 
-                    self.nan_detected = True  # 只标记
-                    return
+                    # self.nan_detected = True  # 只标记
+                    # return
+                    if self.accelerator is None or self.accelerator.is_main_process:
+                        self.dump_nan_state()
+
+                    raise RuntimeError(f"NaN/Inf  DETECTED in module {name}")
 
         return hook

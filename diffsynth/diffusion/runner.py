@@ -6,11 +6,11 @@ from .logger import ModelLogger
 
 # for debug nan issues
 from ..debug_tools.nan_debugger import NaNDebugger
-# from torch_musa.utils.compare_tool import CompareWithCPU, open_module_tracker, ModuleInfo, NanInfTracker
+from torch_musa.utils.compare_tool import CompareWithCPU, open_module_tracker, ModuleInfo, NanInfTracker
 
-DEBUG_FLASH_ATTN = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
-if DEBUG_FLASH_ATTN:
-    print("FlashAttention debug mode enabled")
+DEBUG_MODE = os.environ.get("MUSA_FLASH_ATTENTION_DEBUG", "0") == "1"
+if DEBUG_MODE:
+    print("Debug mode enabled, NaNDebugger will be activated to track down NaN/Inf issues.")
 
 def launch_training_task(
     accelerator: Accelerator,
@@ -43,57 +43,87 @@ def launch_training_task(
     model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
     
     # for debug
-    if DEBUG_FLASH_ATTN:
+    if DEBUG_MODE:
         debugger = NaNDebugger(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             accelerator=accelerator,
             model_logger=model_logger,
-            target_keywords=["self_attn"],
+            target_keywords=["blocks.33"], # if not set will be all
         )
         debugger.enable_hooks()
         debugger.enable_grad_hooks()
         debugger.enable_backward_hooks() # add bwd hook
     
-    for epoch_id in range(num_epochs):
-        # for data in tqdm(dataloader):
-        for step, data in enumerate(tqdm(dataloader)):
-            
-            if DEBUG_FLASH_ATTN:
-                debugger.save_shadow_state(step, epoch_id, data)
-            
-            with accelerator.accumulate(model):
-                optimizer.zero_grad()
-                if dataset.load_from_cache:
-                    loss = model({}, inputs=data)
-                else:
-                    loss = model(data)
-                
-                if DEBUG_FLASH_ATTN:
-                    debugger.check_loss(loss)    
-                
-                accelerator.backward(loss)
-                
-                if DEBUG_FLASH_ATTN:
-                    if debugger.nan_detected:  # just for bwd nan, if fwd nan, it will directly raise error and won't reach here
-                        # 先 dump
-                        debugger.dump_nan_state()
+        with NanInfTracker(
+            enabled=True,
+            target_list=[
+                'torch.ops.aten._scaled_dot_product_attention_flash_musa',
+                'torch.ops.aten._scaled_dot_product_attention_flash_musa_backward',
+                # 'torch.ops.aten._scaled_dot_product_attention_math_musa',
+            ],
+            should_log_to_file=True,
+            dump_error_data=True,
+            output_dir="/data/liang.geng/DiffSynth-Studio/logs/nan_inf_output",
+        ): # 监控整个训练过程中的 NaN/Inf
+            # training loop
+            for epoch_id in range(num_epochs):
+                # for data in tqdm(dataloader):
+                for step, data in enumerate(tqdm(dataloader)):
+                    
+                    if DEBUG_MODE:
+                        debugger.save_shadow_state(step, epoch_id, data)
+                    
+                    with accelerator.accumulate(model):
+                        optimizer.zero_grad()
+                        if dataset.load_from_cache:
+                            loss = model({}, inputs=data)
+                        else:
+                            loss = model(data)
+                        
+                        if DEBUG_MODE:
+                            debugger.check_loss(loss)    
+                        
+                        accelerator.backward(loss)
+                        
+                        if DEBUG_MODE:
+                            if debugger.nan_detected:  # just for bwd nan, if fwd nan, it will directly raise error and won't reach here
+                                # 先 dump
+                                debugger.dump_nan_state()
 
-                        raise RuntimeError(
-                            f"NaN detected at step {debugger.last_good_state['step']}"
+                                raise RuntimeError(
+                                    f"NaN detected at step {debugger.last_good_state['step']}"
+                                )
+                        
+                        optimizer.step()
+                        accelerator.print(
+                            f" epoch={epoch_id} step={step} loss={loss.item():.6f}"
                         )
-                
-                optimizer.step()
-                accelerator.print(
-                    f" epoch={epoch_id} step={step} loss={loss.item():.6f}"
-                )
-                model_logger.on_step_end(accelerator, model, save_steps, loss=loss)
-                scheduler.step()
-        if save_steps is None:
-            model_logger.on_epoch_end(accelerator, model, epoch_id)
-    model_logger.on_training_end(accelerator, model, save_steps)
-
+                        model_logger.on_step_end(accelerator, model, save_steps, loss=loss)
+                        scheduler.step()
+                if save_steps is None:
+                    model_logger.on_epoch_end(accelerator, model, epoch_id)
+            model_logger.on_training_end(accelerator, model, save_steps)
+    else:
+        for epoch_id in range(num_epochs):
+            for step, data in enumerate(tqdm(dataloader)):
+                with accelerator.accumulate(model):
+                    optimizer.zero_grad()
+                    if dataset.load_from_cache:
+                        loss = model({}, inputs=data)
+                    else:
+                        loss = model(data)
+                    accelerator.backward(loss)
+                    optimizer.step()
+                    accelerator.print(
+                        f" epoch={epoch_id} step={step} loss={loss.item():.6f}"
+                    )
+                    model_logger.on_step_end(accelerator, model, save_steps, loss=loss)
+                    scheduler.step()
+            if save_steps is None:
+                model_logger.on_epoch_end(accelerator, model, epoch_id)
+        model_logger.on_training_end(accelerator, model, save_steps)
 
 def launch_data_process_task(
     accelerator: Accelerator,

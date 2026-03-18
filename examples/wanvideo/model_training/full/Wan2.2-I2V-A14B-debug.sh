@@ -3,11 +3,16 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR=${WORK_DIR}/logs/debug_S5000_train-${TIMESTAMP}
 mkdir -p "${LOG_DIR}"
 
+# compare_tools output dir
+rm -rf ${WORK_DIR}/logs/nan_inf_output
+mkdir -p ${WORK_DIR}/logs/nan_inf_output
+
+# Set environment variables for better stability on MUSA and debugging
 export ATTENTION_IMPLEMENTATION="torch"
 export MUSA_LAUNCH_BLOCKING=1 # Enable blocking mode for better stability on MUSA
-echo "[DEBUG] MUSA_LAUNCH_BLOCKING is set to ${MUSA_LAUNCH_BLOCKING}. This may help with stability on MUSA devices."
-
 export MUSA_FLASH_ATTENTION_DEBUG=1 # Enable debug mode on flashattn
+export DEBUG_MODE=1 # If set to 1, enable debug mode for NaNDebugger in runner.py 
+export CROSS_ATTN_MATH_MODE=0 # Enable math mode for cross attention if set to 1
 
 accelerate launch --config_file examples/wanvideo/model_training/full/accelerate_config_14B_test.yaml examples/wanvideo/model_training/train.py \
   --dataset_base_path /data/datasets/OpenVidHD/universal_datasets \
