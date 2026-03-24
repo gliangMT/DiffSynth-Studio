@@ -1,0 +1,1 @@
+nohup bash examples/wanvideo/model_training/full/Wan2.2-I2V-A14B-21.sh > /dev/null 2>&1 &

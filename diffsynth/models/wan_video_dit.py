@@ -18,7 +18,7 @@ try:
     import flash_attn
     if IS_MUSA_AVAILABLE:
         FLASH_ATTN_2_AVAILABLE = False
-        print(f"[DEBUG] flash_attn is available but disabled on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
+        print(f"[DEBUG] flash_attn is available but use math attention on MUSA for better stability. flash_attn version: {flash_attn.__version__}")
     else:        
         FLASH_ATTN_2_AVAILABLE = True
         print(f"[DEBUG] flash_attn is available. flash_attn version: {flash_attn.__version__}")
@@ -39,10 +39,6 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
-            # print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for compatibility mode.")
-            # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
-            # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
-            # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
             with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
                 x = F.scaled_dot_product_attention(q, k, v)
         else:
@@ -73,11 +69,7 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         if IS_MUSA_AVAILABLE: # use sdpa math backend for better stability on MUSA
-            # print("[DEBUG] Using torch's scaled_dot_product_attention with MUSA backend for default mode.")
-            # print(f"[DEBUG MUSA] q tensor shape is {q.shape}, dtype is {q.dtype}, device is {q.device}")
-            # print(f"[DEBUG MUSA] k tensor shape is {k.shape}, dtype is {k.dtype}, device is {k.device}")
-            # print(f"[DEBUG MUSA] v tensor shape is {v.shape}, dtype is {v.dtype}, device is {v.device}")
-            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+            with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
                 x = F.scaled_dot_product_attention(q, k, v)
         else:
             x = F.scaled_dot_product_attention(q, k, v)

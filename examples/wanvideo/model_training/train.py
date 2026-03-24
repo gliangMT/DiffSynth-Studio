@@ -4,9 +4,10 @@ from diffsynth.core import UnifiedDataset
 from diffsynth.core.data.operators import LoadVideo, LoadAudio, ImageCropAndResize, ToAbsolutePath
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
 from diffsynth.diffusion import *
+from accelerate import DeepSpeedPlugin
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-
+torchrun_mode = os.environ.get("TRAIN_WITH_TORCHRUN","0") == "1"
 class WanTrainingModule(DiffusionTrainingModule):
     def __init__(
         self,
@@ -136,10 +137,32 @@ if __name__ == "__main__":
     
     parser = wan_parser()
     args = parser.parse_args()
-    accelerator = accelerate.Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
-    )
+    
+    if torchrun_mode:
+        # if run multi-node with torchrun should add deepspeed config manully in code
+        ds_plugin = DeepSpeedPlugin(
+            hf_ds_config="/data/liang.geng/shared_dir/DiffSynth-Studio/examples/wanvideo/model_training/full/ds_config.json",
+            zero3_init_flag=False,
+        )
+        accelerator = accelerate.Accelerator(
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
+            deepspeed_plugin=ds_plugin,
+        )
+        
+    else:
+        accelerator = accelerate.Accelerator(
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
+        )
+    
+    # add some print to prove multi devices
+    print("[ACCELERATE] distributed_type =", accelerator.distributed_type)
+    print("[ACCELERATE] num_processes   =", accelerator.num_processes)
+    print("[ACCELERATE] process_index   =", accelerator.process_index)
+    print("[ACCELERATE] local_process_index =", accelerator.local_process_index)
+    print("[ACCELERATE] is_main_process =", accelerator.is_main_process)
+    
     dataset = UnifiedDataset(
         base_path=args.dataset_base_path,
         metadata_path=args.dataset_metadata_path,

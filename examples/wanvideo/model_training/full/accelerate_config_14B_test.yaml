@@ -1,7 +1,7 @@
 compute_environment: LOCAL_MACHINE
 debug: true
 deepspeed_config: 
-  deepspeed_config_file: /data/liang.geng/DiffSynth-Studio/examples/wanvideo/model_training/full/ds_config_zero3.json
+  deepspeed_config_file: /data/liang.geng/shared_dir/DiffSynth-Studio/examples/wanvideo/model_training/full/ds_config.json
   zero3_init_flag: false
 distributed_type: DEEPSPEED
 enable_cpu_affinity: false
